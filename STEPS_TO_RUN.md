@@ -11,7 +11,6 @@
 ## Step 1: Build the image
 
 ```bash
-cd /Users/hamzabouazza/Desktop/iqfeed-docker
 docker build --platform=linux/amd64 -t my-iqfeed:latest .
 ```
 
