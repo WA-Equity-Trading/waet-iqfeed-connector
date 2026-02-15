@@ -1,0 +1,29 @@
+# Data files
+data/
+*.csv
+
+# Docker volumes
+DTN/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Node modules (if any)
+node_modules/
+
+# Wine files
+.wine/
+
+# Logs
+*.log
