@@ -50,8 +50,41 @@ RUN chmod +x /root/iqfeed_startup.sh /root/iqfeed_keepalive.sh
 # Add iqfeed proxy app
 ADD app /root/app
 
-# Pre-initialize Wine64 prefix to avoid runtime issues on ARM
-RUN wineboot --init 2>&1 | head -n 10 || true
+# Initialize Wine prefix with a display, fix drive mappings, and pre-install IQFeed
+RUN Xvfb :1 -screen 0 1024x768x24 & \
+    sleep 3 && \
+    DISPLAY=:1 wineboot --init 2>&1 | head -n 10 || true && \
+    sleep 3 && \
+    mkdir -p /root/.wine64/dosdevices && \
+    ln -sfn /root/.wine64/drive_c /root/.wine64/dosdevices/c: && \
+    ln -sfn / /root/.wine64/dosdevices/z: && \
+    DISPLAY=:1 wine64 /root/$IQFEED_INSTALLER /S 2>&1 | tail -n 5 || true && \
+    sleep 30 && \
+    kill %1 || true
+
+# Install gcsfuse AFTER Wine init - prevent upgrading Wine dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends --no-upgrade fuse && \
+    export GCSFUSE_REPO=gcsfuse-jammy && \
+    echo "deb [signed-by=/usr/share/keyrings/gcsfuse-archive-keyring.gpg] https://packages.cloud.google.com/apt $GCSFUSE_REPO main" | \
+    tee /etc/apt/sources.list.d/gcsfuse.list && \
+    curl -sS https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+    gpg --dearmor -o /usr/share/keyrings/gcsfuse-archive-keyring.gpg && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends --no-upgrade gcsfuse && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Go and qdownload
+RUN wget -q https://go.dev/dl/go1.22.0.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz && \
+    rm go1.22.0.linux-amd64.tar.gz && \
+    /usr/local/go/bin/go install github.com/nhedlund/qdownload@latest
+
+ENV PATH=$PATH:/usr/local/go/bin:/root/go/bin
+
+# Add ingestion script
+ADD ingest.sh /root/ingest.sh
+RUN chmod +x /root/ingest.sh
 
 CMD ["/usr/bin/supervisord"]
 

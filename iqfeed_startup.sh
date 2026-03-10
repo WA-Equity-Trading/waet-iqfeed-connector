@@ -40,11 +40,14 @@ if [ -n "$iqconnect_exe" ]; then
   done
 else
   echo "IQFeed not installed. Running installer: $INSTALLER"
-  # Initialize Wine prefix first
+  # Initialize Wine prefix and fix drive mappings
   wineboot --init 2>&1 | head -n 5 || true
   sleep 3
-  # Run installer
-  wine64 "$INSTALLER" 2>&1
+  mkdir -p "$WINEPREFIX/dosdevices"
+  ln -sfn "$WINEPREFIX/drive_c" "$WINEPREFIX/dosdevices/c:"
+  ln -sfn / "$WINEPREFIX/dosdevices/z:"
+  # Run installer silently
+  wine64 "$INSTALLER" /S 2>&1
   echo "Installer finished. Restarting startup script..."
   # After installation, re-run this script to find and launch iqconnect
   exec "$0"
