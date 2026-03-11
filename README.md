@@ -216,19 +216,33 @@ docker exec -it iqfeed-modern bash
 docker exec iqfeed-modern supervisorctl restart all
 ```
 
+## GCP Data Ingestion
+
+For production deployment on Google Cloud Platform with GCS storage, see:
+
+- **[docs/INGESTION_GUIDE.md](docs/INGESTION_GUIDE.md)** — Full technical guide covering:
+  - Container startup with gcsfuse
+  - `vm_batch_ingest.sh` for automated batch downloads
+  - GCS bucket structure and manual downloads
+  - Troubleshooting and known issues
+
 ## Project Structure
 
 ```
 .
 ├── Dockerfile              # Docker image definition
 ├── supervisord.conf        # Process manager config
-├── iqfeed_startup.sh      # IQFeed launcher (auto-restart)
-├── iqfeed_keepalive.sh    # Keepalive pings (prevents timeout)
-├── start_and_download.sh  # Automation script
+├── iqfeed_startup.sh       # IQFeed launcher (auto-restart)
+├── iqfeed_keepalive.sh     # Keepalive pings (prevents timeout)
+├── start_and_download.sh   # Local automation script
+├── ingest.sh               # EOD ingestion to GCS
+├── vm_batch_ingest.sh      # GCP VM batch download script
+├── docs/
+│   └── INGESTION_GUIDE.md  # GCP ingestion operations manual
 ├── app/
-│   ├── proxy.js           # IQFeed connection proxy
-│   └── iqfeed.conf        # IQFeed configuration
-└── data/                  # Downloaded market data (not in git)
+│   ├── proxy.js            # IQFeed connection proxy
+│   └── iqfeed.conf         # IQFeed configuration
+└── data/                   # Downloaded market data (not in git)
 ```
 
 ## Credits
