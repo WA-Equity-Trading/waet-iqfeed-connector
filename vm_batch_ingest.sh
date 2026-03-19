@@ -1,9 +1,15 @@
+#!/bin/bash
+# vm_batch_ingest.sh
+# Runs on the GCP VM. Restarts container and resumes download until complete.
+# Usage: bash ~/vm_batch_ingest.sh <start_date> <end_date> <output_path>
+# Example: bash ~/vm_batch_ingest.sh 20260304 20260306 raw/market-data/my-batch
 
 START_DATE="${1:?Usage: $0 <start_date> <end_date> <output_path>}"
 END_DATE="${2:?Usage: $0 <start_date> <end_date> <output_path>}"
 OUTPUT_PATH="${3:?Usage: $0 <start_date> <end_date> <output_path>}"
 IMAGE="us-central1-docker.pkg.dev/wa-equity-trading/iqfeed/iqfeed-client:latest"
 FAIL_COUNT=0
+PARALLELISM=32
 
 start_container() {
   echo "=== Stopping old container ==="
@@ -40,6 +46,8 @@ wait_for_iqfeed() {
 }
 
 run_download() {
+  INGEST_DATE=$(date +%Y-%m-%d)
+
   echo "=== Copying symbols file ==="
   docker cp ~/symbols.txt iqfeed:/root/symbols.txt
 
@@ -47,11 +55,12 @@ run_download() {
   docker exec iqfeed bash -c "
     mkdir -p /mnt/gcs && \
     gcsfuse --implicit-dirs --log-severity WARNING bkt-prd-iqfeed-raw-files-001 /mnt/gcs 2>/dev/null && \
+    mkdir -p /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE && \
     SYMBOLS=\$(cat /root/symbols.txt | tr '\n' ',' | sed 's/,\$//') && \
-    qdownload -p 2 \
-      -o /mnt/gcs/$OUTPUT_PATH \
+    qdownload -p $PARALLELISM \
+      -o /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE \
       -s $START_DATE -e $END_DATE \
-      tick \$SYMBOLS && \
+      tick \$SYMBOLS 2>&1 | tee /tmp/qdownload.log
     fusermount -u /mnt/gcs || true
   " &
   QDOWNLOAD_PID=$!
@@ -76,7 +85,34 @@ run_download() {
   done
 
   wait $QDOWNLOAD_PID
-  return $?
+  local EXIT_CODE=$?
+  [ $EXIT_CODE -ne 0 ] && return $EXIT_CODE
+
+  echo "=== Parsing failures and writing _FAILED.csv ==="
+  docker exec iqfeed bash -c "
+    mkdir -p /mnt/gcs && \
+    gcsfuse --implicit-dirs --log-severity WARNING bkt-prd-iqfeed-raw-files-001 /mnt/gcs 2>/dev/null
+
+    echo 'symbol,reason,date' > /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE/_FAILED.csv
+
+    grep -oP '(?<=Map row error).*' /tmp/qdownload.log | while IFS= read -r line; do
+      SYM=\$(echo \"\$line\" | grep -oP 'symbol=\K\S+')
+      REASON=\$(echo \"\$line\" | grep -oP '!\K\w+(?=!)')
+      [ -n \"\$SYM\" ] && echo \"\${SYM},!\${REASON}!,$START_DATE\"
+    done >> /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE/_FAILED.csv
+
+    grep -oP '(?<=Could not create output file).*' /tmp/qdownload.log | while IFS= read -r line; do
+      SYM=\$(echo \"\$line\" | grep -oP 'symbol=\K\S+')
+      [ -n \"\$SYM\" ] && echo \"\${SYM},could not create output file,$START_DATE\"
+    done >> /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE/_FAILED.csv
+
+    touch /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE/_SUCCESS
+
+    fusermount -u /mnt/gcs || true
+  "
+
+  echo "=== _FAILED.csv and _SUCCESS written ==="
+  return 0
 }
 
 # Main loop
