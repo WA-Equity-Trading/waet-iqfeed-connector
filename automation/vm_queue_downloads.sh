@@ -77,9 +77,9 @@ query_download_batches() {
   local sql
   sql=$(cat <<'ENDSQL'
 SELECT batch_id, start_date_raw, end_date_raw
-FROM `wa-equity-trading.ds_prd_diagnostics.batch_action_queue`
+FROM `wa-equity-trading.ds_prd_diagnostics.diag_batch_action_queue_v001`
 WHERE recommended_action = 'DOWNLOAD'
-  AND DATE(refreshed_at) = (SELECT MAX(DATE(refreshed_at)) FROM `wa-equity-trading.ds_prd_diagnostics.batch_action_queue`)
+  AND DATE(refreshed_at) = (SELECT MAX(DATE(refreshed_at)) FROM `wa-equity-trading.ds_prd_diagnostics.diag_batch_action_queue_v001`)
 ORDER BY start_date_raw ASC
 ENDSQL
 )
