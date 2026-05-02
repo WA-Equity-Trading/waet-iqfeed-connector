@@ -226,6 +226,12 @@ For production deployment on Google Cloud Platform with GCS storage, see:
   - GCS bucket structure and manual downloads
   - Troubleshooting and known issues
 
+### Marker Ownership
+
+- The uploader writes `_SUCCESS` to the raw bucket.
+- Downstream workflow markers are not written by this repo.
+- `_SILVER_READY` and `_READY_TO_ARCHIVE` belong to the workflow pipeline and live in the markers bucket.
+
 ## Project Structure
 
 ```

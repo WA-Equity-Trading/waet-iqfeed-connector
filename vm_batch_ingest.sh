@@ -107,6 +107,7 @@ run_download() {
       [ -n \"\$SYM\" ] && echo \"\${SYM},could not create output file,$START_DATE\"
     done >> /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE/_FAILED.csv
 
+    # _SUCCESS is the uploader-owned raw-bucket trigger marker for s1.
     touch /mnt/gcs/$OUTPUT_PATH/$INGEST_DATE/_SUCCESS
 
     fusermount -u /mnt/gcs || true

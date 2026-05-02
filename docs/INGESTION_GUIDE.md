@@ -18,6 +18,12 @@ The pipeline consists of the following layers:
 - **qdownload** CLI tool writing data directly to GCS via the mount
 - **vm_batch_ingest.sh** script with auto-restart loop on IQFeed disconnects
 
+Marker ownership:
+
+- This repo writes `_SUCCESS` to the raw bucket when batch upload/download completes.
+- This repo does not write workflow-owned downstream markers.
+- `_SILVER_READY` and `_READY_TO_ARCHIVE` are written later by Cloud Workflows to the markers bucket.
+
 ### 1.2 Data Flow
 
 ```
