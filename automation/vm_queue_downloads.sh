@@ -1,6 +1,6 @@
 #!/bin/bash
 # vm_queue_downloads.sh
-# Runs on the GCP VM. Reads batch_action_queue for DOWNLOAD batches and
+# Runs on the GCP VM. Reads the latest snapshot action queue for DOWNLOAD batches and
 # writes a job JSON to GCS jobs/pending/ for each one.
 #
 # The existing vm_job_poller.sh picks up jobs from jobs/pending/ and
@@ -9,8 +9,9 @@
 # Usage:
 #   bash ~/vm_queue_downloads.sh            # queue all pending DOWNLOAD batches
 #   bash ~/vm_queue_downloads.sh --dry-run  # print what would be queued, no writes
+#   bash ~/vm_queue_downloads.sh --force    # ignore run throttling for this invocation
 #
-# Schedule: run daily after midnight (after diagnostics-daily refreshes batch_action_queue).
+# Schedule: run daily after midnight (after Dataform refreshes diag_batch_action_queue_v001).
 # Example cron (runs at 00:30 ET = 04:30 UTC):
 #   30 4 * * * bash ~/vm_queue_downloads.sh >> ~/queue_downloads.log 2>&1
 #
@@ -25,8 +26,15 @@ RUNNING_PREFIX="jobs/running/"
 COMPLETED_PREFIX="jobs/completed/"
 LOG_TAG="[queue-downloads]"
 DRY_RUN=false
+FORCE_RUN=false
+MIN_INTERVAL_SECONDS="${QUEUE_DOWNLOADS_MIN_INTERVAL_SECONDS:-86400}"
+LAST_RUN_FILE="${HOME:-/tmp}/.vm_queue_downloads_last_run"
 
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=true
+[ "${1:-}" = "--force" ] && FORCE_RUN=true
+
+if [ "${2:-}" = "--dry-run" ]; then DRY_RUN=true; fi
+if [ "${2:-}" = "--force" ]; then FORCE_RUN=true; fi
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $LOG_TAG $*"; }
 
@@ -66,7 +74,7 @@ gcs_upload() {
 
 # ── Query BQ for DOWNLOAD batches (BQ REST API — no bq CLI needed on COS) ───
 #
-# Reads from the most recent partition of batch_action_queue.
+# Reads from the latest Dataform-built snapshot table.
 # Returns lines of: batch_id,start_date_raw,end_date_raw
 
 query_download_batches() {
@@ -75,11 +83,10 @@ query_download_batches() {
 
   # Use heredoc for SQL to avoid backtick/quoting issues in shell
   local sql
-  sql=$(cat <<'ENDSQL'
+sql=$(cat <<'ENDSQL'
 SELECT batch_id, start_date_raw, end_date_raw
-FROM `wa-equity-trading.ds_prd_diagnostics.batch_action_queue`
+FROM `wa-equity-trading.ds_prd_diagnostics.diag_batch_action_queue_v001`
 WHERE recommended_action = 'DOWNLOAD'
-  AND DATE(refreshed_at) = (SELECT MAX(DATE(refreshed_at)) FROM `wa-equity-trading.ds_prd_diagnostics.batch_action_queue`)
 ORDER BY start_date_raw ASC
 ENDSQL
 )
@@ -111,7 +118,16 @@ for row in data.get('rows', []):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-log "Querying batch_action_queue for DOWNLOAD batches..."
+log "Querying diag_batch_action_queue_v001 for DOWNLOAD batches..."
+
+if ! $FORCE_RUN && [ -f "$LAST_RUN_FILE" ]; then
+  LAST_RUN_TS=$(cat "$LAST_RUN_FILE" 2>/dev/null || true)
+  NOW_TS=$(date +%s)
+  if [ -n "$LAST_RUN_TS" ] && [ $((NOW_TS - LAST_RUN_TS)) -lt "$MIN_INTERVAL_SECONDS" ]; then
+    log "Skipping BigQuery poll; ran recently and min interval is ${MIN_INTERVAL_SECONDS}s."
+    exit 0
+  fi
+fi
 
 # Get token once
 TOKEN=$(get_token)
@@ -124,7 +140,10 @@ fi
 ROWS=$(query_download_batches "$TOKEN")
 
 if [ -z "$ROWS" ]; then
-  log "No DOWNLOAD batches found in batch_action_queue. Nothing to queue."
+  log "No DOWNLOAD batches found in diag_batch_action_queue_v001. Nothing to queue."
+  if ! $DRY_RUN; then
+    date +%s > "$LAST_RUN_FILE"
+  fi
   exit 0
 fi
 
@@ -171,5 +190,9 @@ while IFS=',' read -r BATCH_ID START_DATE END_DATE; do
 
   QUEUED=$((QUEUED + 1))
 done <<< "$ROWS"
+
+if ! $DRY_RUN; then
+  date +%s > "$LAST_RUN_FILE"
+fi
 
 log "Done. Queued=$QUEUED Skipped=$SKIPPED"

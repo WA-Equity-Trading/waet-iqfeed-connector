@@ -28,6 +28,7 @@ docker-credential-gcr configure-docker --registries=us-central1-docker.pkg.dev
 # Read IQFeed credentials from instance metadata
 LOGIN=$(curl -sf "${METADATA_URL}/iqfeed-login" -H "${METADATA_HEADER}")
 PASSWORD=$(curl -sf "${METADATA_URL}/iqfeed-password" -H "${METADATA_HEADER}")
+PRODUCT_ID=$(curl -sf "${METADATA_URL}/iqfeed-product-id" -H "${METADATA_HEADER}")
 
 # Stop existing container if running
 docker stop iqfeed 2>/dev/null || true
@@ -41,6 +42,7 @@ docker run -d --restart=always \
   --name iqfeed \
   -e LOGIN="$LOGIN" \
   -e PASSWORD="$PASSWORD" \
+  -e PRODUCT_ID="$PRODUCT_ID" \
   -p 5010:5010 \
   -p 9101:9101 \
   -p 9301:9301 \
@@ -79,10 +81,12 @@ else
   echo "Warning: vm_job_poller.sh not found. Job poller not started."
 fi
 
-# Start the queue downloader (checks BQ for DOWNLOAD batches every hour)
+# Start the queue downloader.
+# The script self-throttles to once per day by default, and this wrapper
+# sleeps for a day between invocations to avoid unnecessary wakeups.
 if [ -f "${HOME}/vm_queue_downloads.sh" ]; then
   echo "Starting queue downloader..."
-  nohup bash -c "while true; do bash ${HOME}/vm_queue_downloads.sh >> ${HOME}/queue_downloads.log 2>&1; sleep 3600; done" >> "${HOME}/queue_downloader_wrapper.log" 2>&1 &
+  nohup bash -c "while true; do bash ${HOME}/vm_queue_downloads.sh >> ${HOME}/queue_downloads.log 2>&1; sleep 86400; done" >> "${HOME}/queue_downloader_wrapper.log" 2>&1 &
   echo "Queue downloader started (PID $!)."
 else
   echo "Warning: vm_queue_downloads.sh not found. Queue downloader not started."
